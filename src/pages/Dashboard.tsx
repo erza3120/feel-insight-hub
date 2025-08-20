@@ -5,29 +5,104 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, Camera, FileText, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Upload, Camera, FileText, Sparkles, Image as ImageIcon, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { CameraCapture } from "@/components/Camera/CameraCapture";
+import { extractTextFromImage, analyzeSentiment, OCRResult } from "@/utils/ocrProcessor";
+
+interface AnalysisResult {
+  text: string;
+  sentiment: 'positive' | 'negative' | 'neutral';
+  confidence: number;
+  summary: string;
+  source: 'text' | 'file' | 'camera';
+  ocrConfidence?: number;
+}
 
 export default function Dashboard() {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
 
-  const handleAnalyze = () => {
-    if (!text.trim() && !file) {
+  const performSentimentAnalysis = (textToAnalyze: string, source: 'text' | 'file' | 'camera', ocrResult?: OCRResult) => {
+    const analysis = analyzeSentiment(textToAnalyze);
+    
+    const result: AnalysisResult = {
+      text: textToAnalyze,
+      sentiment: analysis.sentiment,
+      confidence: analysis.confidence,
+      summary: analysis.summary,
+      source,
+      ocrConfidence: ocrResult?.confidence
+    };
+    
+    setAnalysisResult(result);
+    
+    toast({
+      title: "Analysis Complete",
+      description: `${analysis.sentiment.charAt(0).toUpperCase() + analysis.sentiment.slice(1)} sentiment detected (${analysis.confidence}% confidence)`,
+    });
+  };
+
+  const handleAnalyzeText = () => {
+    if (!text.trim()) {
       toast({
-        title: "No input provided",
-        description: "Please enter text or upload a file to analyze.",
+        title: "No text provided",
+        description: "Please enter text to analyze.",
         variant: "destructive",
       });
       return;
     }
 
-    // For now, show a mock analysis result
-    toast({
-      title: "Analysis Complete",
-      description: "Sentiment analysis has been processed successfully!",
-    });
+    performSentimentAnalysis(text.trim(), 'text');
+  };
+
+  const handleAnalyzeFile = async () => {
+    if (!file) {
+      toast({
+        title: "No file selected",
+        description: "Please upload a file to analyze.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    
+    try {
+      if (file.type.startsWith('image/')) {
+        // Process image with OCR
+        const ocrResult = await extractTextFromImage(file);
+        
+        if (!ocrResult.text.trim()) {
+          toast({
+            title: "No text found",
+            description: "Unable to extract text from the image.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        performSentimentAnalysis(ocrResult.text, 'file', ocrResult);
+      } else {
+        // Process text file
+        const textContent = await file.text();
+        performSentimentAnalysis(textContent, 'file');
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      toast({
+        title: "Processing Error",
+        description: "Failed to process the uploaded file.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,11 +116,49 @@ export default function Dashboard() {
     }
   };
 
-  const handleCameraCapture = () => {
-    toast({
-      title: "Camera feature",
-      description: "Camera functionality will be available soon!",
-    });
+  const handleCameraCapture = async (imageBlob: Blob) => {
+    setIsAnalyzing(true);
+    
+    try {
+      const ocrResult = await extractTextFromImage(imageBlob);
+      
+      if (!ocrResult.text.trim()) {
+        toast({
+          title: "No text found",
+          description: "Unable to extract text from the captured image.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      performSentimentAnalysis(ocrResult.text, 'camera', ocrResult);
+    } catch (error) {
+      console.error('Error processing camera image:', error);
+      toast({
+        title: "Processing Error",
+        description: "Failed to process the captured image.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const getSentimentColor = (sentiment: string) => {
+    switch (sentiment) {
+      case 'positive': return 'bg-green-500';
+      case 'negative': return 'bg-red-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getSourceIcon = (source: string) => {
+    switch (source) {
+      case 'text': return <FileText className="h-4 w-4" />;
+      case 'file': return <Upload className="h-4 w-4" />;
+      case 'camera': return <Camera className="h-4 w-4" />;
+      default: return <FileText className="h-4 w-4" />;
+    }
   };
 
   return (
@@ -82,10 +195,10 @@ export default function Dashboard() {
                 />
               </div>
               <Button 
-                onClick={handleAnalyze} 
+                onClick={handleAnalyzeText} 
                 className="w-full"
                 variant="gradient"
-                disabled={!text.trim()}
+                disabled={!text.trim() || isAnalyzing}
               >
                 <Sparkles className="h-4 w-4 mr-2" />
                 Analyze
@@ -130,10 +243,10 @@ export default function Dashboard() {
                 )}
               </div>
               <Button 
-                onClick={handleAnalyze} 
+                onClick={handleAnalyzeFile} 
                 className="w-full"
                 variant="gradient"
-                disabled={!file}
+                disabled={!file || isAnalyzing}
               >
                 <Sparkles className="h-4 w-4 mr-2" />
                 Analyze File
@@ -159,7 +272,7 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground mb-4">
                   Capture image to extract and analyze text
                 </p>
-                <Button onClick={handleCameraCapture} variant="outline">
+                <Button onClick={() => setIsCameraOpen(true)} variant="outline" disabled={isAnalyzing}>
                   Open Camera
                 </Button>
               </div>
@@ -188,6 +301,62 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Analysis Results */}
+        {analysisResult && (
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Analysis Results
+              </CardTitle>
+              <CardDescription>
+                Sentiment analysis results for your {analysisResult.source} input
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Badge variant="outline" className="flex items-center gap-2">
+                  {getSourceIcon(analysisResult.source)}
+                  {analysisResult.source.charAt(0).toUpperCase() + analysisResult.source.slice(1)}
+                </Badge>
+                <Badge className={getSentimentColor(analysisResult.sentiment)}>
+                  {analysisResult.sentiment.charAt(0).toUpperCase() + analysisResult.sentiment.slice(1)}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  {analysisResult.confidence}% confident
+                </span>
+                {analysisResult.ocrConfidence && (
+                  <span className="text-sm text-muted-foreground">
+                    OCR: {analysisResult.ocrConfidence}% accurate
+                  </span>
+                )}
+              </div>
+              
+              <div className="p-4 bg-secondary rounded-lg">
+                <h4 className="font-medium mb-2">Summary</h4>
+                <p className="text-sm text-muted-foreground">{analysisResult.summary}</p>
+              </div>
+              
+              <div className="p-4 bg-secondary rounded-lg">
+                <h4 className="font-medium mb-2">Analyzed Text</h4>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                  {analysisResult.text.length > 300 
+                    ? `${analysisResult.text.substring(0, 300)}...` 
+                    : analysisResult.text
+                  }
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Camera Capture Modal */}
+        <CameraCapture
+          isOpen={isCameraOpen}
+          onClose={() => setIsCameraOpen(false)}
+          onCapture={handleCameraCapture}
+        />
       </div>
     </DashboardLayout>
   );
