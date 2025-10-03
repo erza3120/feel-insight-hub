@@ -1,85 +1,99 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/Layout/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Clock, Search, FileText, Upload, Camera, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
 
-interface AnalysisRecord {
+interface Analysis {
   id: string;
   text: string;
-  sentiment: 'positive' | 'negative' | 'neutral';
+  sentiment: string;
   confidence: number;
   summary: string;
-  source: 'text' | 'file' | 'camera';
+  source: string;
   ocr_confidence: number | null;
   created_at: string;
 }
 
 export default function History() {
-  const [analyses, setAnalyses] = useState<AnalysisRecord[]>([]);
+  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const [filteredAnalyses, setFilteredAnalyses] = useState<Analysis[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetchAnalyses();
-  }, []);
+    const checkAuthAndFetch = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate('/login');
+      } else {
+        fetchAnalyses();
+      }
+    };
+    checkAuthAndFetch();
+  }, [navigate]);
 
   const fetchAnalyses = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('sentiment_analyses')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-      const { data, error } = await supabase
-        .from('sentiment_analyses')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setAnalyses((data || []) as AnalysisRecord[]);
-    } catch (error) {
-      console.error('Error fetching analyses:', error);
+    if (error) {
       toast({
-        title: "Error",
-        description: "Failed to load analysis history",
+        title: "Error loading history",
+        description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
+    } else {
+      setAnalyses(data || []);
+      setFilteredAnalyses(data || []);
+    }
+    setIsLoading(false);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setFilteredAnalyses(analyses);
+    } else {
+      const filtered = analyses.filter(
+        (analysis) =>
+          analysis.text.toLowerCase().includes(query.toLowerCase()) ||
+          analysis.summary.toLowerCase().includes(query.toLowerCase()) ||
+          analysis.sentiment.toLowerCase().includes(query.toLowerCase())
+      );
+      setFilteredAnalyses(filtered);
     }
   };
 
   const handleDelete = async (id: string) => {
-    try {
-      const { error } = await supabase
-        .from('sentiment_analyses')
-        .delete()
-        .eq('id', id);
+    const { error } = await supabase
+      .from('sentiment_analyses')
+      .delete()
+      .eq('id', id);
 
-      if (error) throw error;
-
-      setAnalyses(analyses.filter(a => a.id !== id));
+    if (error) {
       toast({
-        title: "Deleted",
-        description: "Analysis deleted successfully",
-      });
-    } catch (error) {
-      console.error('Error deleting analysis:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete analysis",
+        title: "Error deleting analysis",
+        description: error.message,
         variant: "destructive",
       });
+    } else {
+      toast({
+        title: "Analysis deleted",
+        description: "The analysis has been removed from your history.",
+      });
+      fetchAnalyses();
     }
   };
 
@@ -100,11 +114,6 @@ export default function History() {
     }
   };
 
-  const filteredAnalyses = analyses.filter(analysis =>
-    analysis.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    analysis.summary.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <DashboardLayout>
       <div className="p-8">
@@ -124,27 +133,29 @@ export default function History() {
                 placeholder="Search history..."
                 className="pl-10"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearch(e.target.value)}
               />
             </div>
           </CardContent>
         </Card>
 
-        {/* History List or Empty State */}
+        {/* Results */}
         {isLoading ? (
           <Card>
             <CardContent className="flex items-center justify-center py-16">
-              <p className="text-muted-foreground">Loading...</p>
+              <p className="text-muted-foreground">Loading history...</p>
             </CardContent>
           </Card>
         ) : filteredAnalyses.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16">
               <Clock className="h-16 w-16 text-muted-foreground mb-4" />
-              <CardTitle className="text-xl mb-2">No Analysis History</CardTitle>
+              <CardTitle className="text-xl mb-2">
+                {searchQuery ? "No results found" : "No Analysis History"}
+              </CardTitle>
               <CardDescription className="text-center max-w-md">
-                {searchQuery 
-                  ? "No analyses match your search query." 
+                {searchQuery
+                  ? "Try adjusting your search terms"
                   : "Your sentiment analysis history will appear here once you start analyzing text."}
               </CardDescription>
             </CardContent>
@@ -155,30 +166,35 @@ export default function History() {
               <Card key={analysis.id}>
                 <CardHeader>
                   <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="flex items-center gap-2">
-                        {getSourceIcon(analysis.source)}
-                        {analysis.source.charAt(0).toUpperCase() + analysis.source.slice(1)}
-                      </Badge>
-                      <Badge className={getSentimentColor(analysis.sentiment)}>
-                        {analysis.sentiment.charAt(0).toUpperCase() + analysis.sentiment.slice(1)}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {analysis.confidence}% confident
-                      </span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="flex items-center gap-1">
+                          {getSourceIcon(analysis.source)}
+                          {analysis.source.charAt(0).toUpperCase() + analysis.source.slice(1)}
+                        </Badge>
+                        <Badge className={getSentimentColor(analysis.sentiment)}>
+                          {analysis.sentiment.charAt(0).toUpperCase() + analysis.sentiment.slice(1)}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {analysis.confidence}% confident
+                        </span>
+                        {analysis.ocr_confidence && (
+                          <span className="text-sm text-muted-foreground">
+                            OCR: {analysis.ocr_confidence}%
+                          </span>
+                        )}
+                      </div>
+                      <CardDescription>
+                        {format(new Date(analysis.created_at), 'PPpp')}
+                      </CardDescription>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        {formatDistanceToNow(new Date(analysis.created_at), { addSuffix: true })}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(analysis.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(analysis.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -189,8 +205,8 @@ export default function History() {
                   <div>
                     <h4 className="font-medium mb-1 text-sm">Analyzed Text</h4>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                      {analysis.text.length > 200 
-                        ? `${analysis.text.substring(0, 200)}...` 
+                      {analysis.text.length > 200
+                        ? `${analysis.text.substring(0, 200)}...`
                         : analysis.text}
                     </p>
                   </div>
