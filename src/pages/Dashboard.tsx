@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { DashboardLayout } from "@/components/Layout/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,21 +27,7 @@ export default function Dashboard() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const { toast } = useToast();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/login');
-      } else {
-        setUserId(session.user.id);
-      }
-    };
-    checkAuth();
-  }, [navigate]);
 
   const performSentimentAnalysis = async (textToAnalyze: string, source: 'text' | 'file' | 'camera', ocrResult?: OCRResult) => {
     const analysis = analyzeSentiment(textToAnalyze);
@@ -59,11 +44,12 @@ export default function Dashboard() {
     setAnalysisResult(result);
     
     // Save to database
-    if (userId) {
-      const { error } = await supabase
-        .from('sentiment_analyses')
-        .insert({
-          user_id: userId,
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        await supabase.from('sentiment_analyses').insert({
+          user_id: user.id,
           text: textToAnalyze,
           sentiment: analysis.sentiment,
           confidence: analysis.confidence,
@@ -71,10 +57,9 @@ export default function Dashboard() {
           source,
           ocr_confidence: ocrResult?.confidence
         });
-
-      if (error) {
-        console.error('Error saving analysis:', error);
       }
+    } catch (error) {
+      console.error('Error saving analysis:', error);
     }
     
     toast({

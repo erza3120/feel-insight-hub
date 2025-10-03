@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Camera, X, RotateCcw, Check } from "lucide-react";
@@ -21,17 +21,11 @@ export const CameraCapture = ({ isOpen, onClose, onCapture }: CameraCaptureProps
   const startCamera = useCallback(async () => {
     try {
       setIsLoading(true);
-      
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera API not supported');
-      }
-
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { 
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          facingMode: 'environment'
+          facingMode: 'environment' // Use back camera on mobile
         }
       });
       
@@ -41,21 +35,9 @@ export const CameraCapture = ({ isOpen, onClose, onCapture }: CameraCaptureProps
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
-      let errorMessage = "Unable to access camera. Please check permissions.";
-      
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          errorMessage = "Camera access denied. Please allow camera permissions in your browser settings.";
-        } else if (error.name === 'NotFoundError') {
-          errorMessage = "No camera found on this device.";
-        } else if (error.name === 'NotReadableError') {
-          errorMessage = "Camera is already in use by another application.";
-        }
-      }
-      
       toast({
-        title: "Camera Error",
-        description: errorMessage,
+        title: "Camera Access Error",
+        description: "Unable to access camera. Please check permissions.",
         variant: "destructive",
       });
     } finally {
@@ -120,21 +102,21 @@ export const CameraCapture = ({ isOpen, onClose, onCapture }: CameraCaptureProps
   }, [stopCamera, onClose]);
 
   // Start camera when dialog opens
-  useEffect(() => {
+  useState(() => {
     if (isOpen && !stream && !capturedImage) {
       startCamera();
     }
-  }, [isOpen, stream, capturedImage, startCamera]);
+  });
 
   // Cleanup on unmount
-  useEffect(() => {
+  useState(() => {
     return () => {
       stopCamera();
       if (capturedImage) {
         URL.revokeObjectURL(capturedImage);
       }
     };
-  }, [stopCamera, capturedImage]);
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
