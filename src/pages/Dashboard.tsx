@@ -10,6 +10,7 @@ import { Upload, Camera, FileText, Sparkles, Image as ImageIcon, AlertCircle } f
 import { useToast } from "@/hooks/use-toast";
 import { CameraCapture } from "@/components/Camera/CameraCapture";
 import { extractTextFromImage, analyzeSentiment, OCRResult } from "@/utils/ocrProcessor";
+import { supabase } from "@/integrations/supabase/client";
 
 interface AnalysisResult {
   text: string;
@@ -28,7 +29,7 @@ export default function Dashboard() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
 
-  const performSentimentAnalysis = (textToAnalyze: string, source: 'text' | 'file' | 'camera', ocrResult?: OCRResult) => {
+  const performSentimentAnalysis = async (textToAnalyze: string, source: 'text' | 'file' | 'camera', ocrResult?: OCRResult) => {
     const analysis = analyzeSentiment(textToAnalyze);
     
     const result: AnalysisResult = {
@@ -41,6 +42,25 @@ export default function Dashboard() {
     };
     
     setAnalysisResult(result);
+    
+    // Save to database
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        await supabase.from('sentiment_analyses').insert({
+          user_id: user.id,
+          text: textToAnalyze,
+          sentiment: analysis.sentiment,
+          confidence: analysis.confidence,
+          summary: analysis.summary,
+          source,
+          ocr_confidence: ocrResult?.confidence
+        });
+      }
+    } catch (error) {
+      console.error('Error saving analysis:', error);
+    }
     
     toast({
       title: "Analysis Complete",

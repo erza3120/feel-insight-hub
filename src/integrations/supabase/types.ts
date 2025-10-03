@@ -14,7 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      sentiment_analyses: {
+        Row: {
+          confidence: number
+          created_at: string
+          id: string
+          ocr_confidence: number | null
+          sentiment: string
+          source: string
+          summary: string
+          text: string
+          user_id: string | null
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          id?: string
+          ocr_confidence?: number | null
+          sentiment: string
+          source: string
+          summary: string
+          text: string
+          user_id?: string | null
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          ocr_confidence?: number | null
+          sentiment?: string
+          source?: string
+          summary?: string
+          text?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
